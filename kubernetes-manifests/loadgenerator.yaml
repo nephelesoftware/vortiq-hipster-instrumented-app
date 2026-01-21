@@ -32,7 +32,8 @@ spec:
       restartPolicy: Always
       containers:
       - name: main
-        image: registry.cn-shenzhen.aliyuncs.com/trainticket/hipster-loadgenerator:testbed
+        image: loadgenerator
+        imagePullPolicy: Never
         env:
         - name: FRONTEND_ADDR
           value: "frontend:80"

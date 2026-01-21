@@ -34,13 +34,6 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/sirupsen/logrus"
 
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/kv"
-	"go.opentelemetry.io/otel/exporters/trace/jaeger"
-
-	grpcotel "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -68,18 +61,11 @@ func main() {
 		TimestampFormat: time.RFC3339Nano,
 	}
 	log.Out = os.Stdout
-	initTracer(log)
 
 	catalogMutex = &sync.Mutex{}
 	err := readCatalogFile(&cat)
 	if err != nil {
 		log.Warnf("could not parse product catalog")
-	}
-	if os.Getenv("DISABLE_TRACING") == "" {
-		log.Info("Tracing enabled.")
-
-	} else {
-		log.Info("Tracing disabled.")
 	}
 
 	flag.Parse()
@@ -125,17 +111,7 @@ func run(port string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
-	var srv *grpc.Server
-	if os.Getenv("DISABLE_STATS") == "" {
-		log.Info("Stats enabled.")
-		srv = grpc.NewServer(
-			grpc.UnaryInterceptor(grpcotel.UnaryServerInterceptor(global.Tracer(""))),
-			grpc.StreamInterceptor(grpcotel.StreamServerInterceptor(global.Tracer(""))),
-		)
-	} else {
-		log.Info("Stats disabled.")
-		srv = grpc.NewServer()
-	}
+	srv := grpc.NewServer()
 
 	svc := &productCatalog{}
 
@@ -143,38 +119,6 @@ func run(port string) string {
 	healthpb.RegisterHealthServer(srv, svc)
 	go srv.Serve(l)
 	return l.Addr().String()
-}
-
-func initTracer(log logrus.FieldLogger) func() {
-	podIp := os.Getenv("POD_IP")
-	podName := os.Getenv("POD_NAME")
-	nodeName := os.Getenv("NODE_NAME")
-	svcAddr := os.Getenv("JAEGER_SERVICE_ADDR")
-	if svcAddr == "" {
-		log.Info("jaeger initialization disabled.")
-	}
-	endPoint := fmt.Sprintf("http://%s", svcAddr)
-	flush, err := jaeger.InstallNewPipeline(
-		jaeger.WithCollectorEndpoint(endPoint),
-		jaeger.WithProcess(jaeger.Process{
-			ServiceName: "productcatalogservice",
-			Tags: []kv.KeyValue{
-				kv.String("exporter", "jaeger"),
-				kv.Float64("float", 312.23),
-				kv.String("ip", podIp),
-				kv.String("name", podName),
-				kv.String("node_name", nodeName),
-			},
-		}),
-		jaeger.WithSDK(&sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Info("jaeger initialization completed.")
-	return func() {
-		flush()
-	}
 }
 
 type productCatalog struct{}

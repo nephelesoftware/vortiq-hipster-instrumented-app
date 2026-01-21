@@ -13,32 +13,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-// Tracing code
-const { NodeTracerProvider } = require('@opentelemetry/node');
-const { SimpleSpanProcessor } = require('@opentelemetry/tracing');
-const { JaegerExporter } =  require('@opentelemetry/exporter-jaeger');
-
-const options = {
-  serviceName: 'currencyservice',
-  tags: [{key: 'ip', value: process.env.POD_IP},
-         {key: 'name', value: process.env.POD_NAME},
-         {key: 'node_name', value: process.env.NODE_NAME}], // optional
-  host: process.env.JAEGER_HOST,
-  port: process.env.JAEGER_PORT, // optional
-  maxPacketSize: 65000 // optional
-}
-
-const exporter = new JaegerExporter(options);
-const provider = new NodeTracerProvider();
-provider.addSpanProcessor(new SimpleSpanProcessor(exporter));
-provider.register();
-
-console.log("jaeger tracing initialized");
-
-
 const path = require('path');
-const grpc = require('grpc');
+const grpc = require('@grpc/grpc-js');
 const pino = require('pino');
 const protoLoader = require('@grpc/proto-loader');
 const MAIN_PROTO_PATH = path.join(__dirname, './proto/demo.proto');
@@ -156,8 +132,7 @@ function main () {
   const server = new grpc.Server();
   server.addService(shopProto.CurrencyService.service, {getSupportedCurrencies, convert});
   server.addService(healthProto.Health.service, {check});
-  server.bind(`0.0.0.0:${PORT}`, grpc.ServerCredentials.createInsecure());
-  server.start();
+  server.bindAsync(`0.0.0.0:${PORT}`, grpc.ServerCredentials.createInsecure(), (err, port) => { if (err) { logger.error(err); return; } logger.info(`Server started on port ${port}`); });
 }
 
 main();

@@ -20,27 +20,27 @@ build:
   # must provide a "default repo" using one of the methods described 
   # here:
   # https://skaffold.dev/docs/concepts/#image-repository-handling
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/emailservice
+  - image: emailservice
     context: src/emailservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/productcatalogservice
+  - image: productcatalogservice
     context: src/productcatalogservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/recommendationservice
+  - image: recommendationservice
     context: src/recommendationservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/shippingservice
+  - image: shippingservice
     context: src/shippingservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/checkoutservice
+  - image: checkoutservice
     context: src/checkoutservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/paymentservice
+  - image: paymentservice
     context: src/paymentservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/currencyservice
+  - image: currencyservice
     context: src/currencyservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/cartservice
+  - image: cartservice
     context: src/cartservice
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/frontend
+  - image: frontend
     context: src/frontend
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/loadgenerator
+  - image: loadgenerator
     context: src/loadgenerator
-  - image: registry.cn-hangzhou.aliyuncs.com/pnut/testbed/adservice
+  - image: adservice
     context: src/adservice
   tagPolicy:
     gitCommit: {}

@@ -29,41 +29,14 @@ spec:
       terminationGracePeriodSeconds: 5
       containers:
       - name: server
-        image: registry.cn-shenzhen.aliyuncs.com/trainticket/hipster-currencyservice:testbed
-        imagePullPolicy: Always
+        image: currencyservice
+        imagePullPolicy: Never
         ports:
         - name: grpc
           containerPort: 7000
         env:
         - name: PORT
           value: "7000"
-        - name: JAEGER_HOST
-          #value: "jaeger"
-          valueFrom:
-            fieldRef:
-              fieldPath: status.hostIP
-        - name: JAEGER_PORT
-          value: "6832"
-        #- name: ZIPKIN_COLLECTOR_URL
-        #  value: "http://jaeger-collector:9411/api/v2/spans"
-        - name: POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: NODE_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: spec.nodeName
-        #readinessProbe:
-        #  exec:
-        #    command: ["/bin/grpc_health_probe", "-addr=:7000"]
-        #livenessProbe:
-        #  exec:
-        #    command: ["/bin/grpc_health_probe", "-addr=:7000"]
         resources:
           requests:
             cpu: 100m

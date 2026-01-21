@@ -24,13 +24,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/kv"
-	"go.opentelemetry.io/otel/exporters/trace/jaeger"
-
-	grpcotel "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -71,13 +64,6 @@ type checkoutService struct {
 }
 
 func main() {
-	if os.Getenv("DISABLE_TRACING") == "" {
-		log.Info("Tracing enabled.")
-		initTracer(log)
-	} else {
-		log.Info("Tracing disabled.")
-	}
-
 	port := listenPort
 	if os.Getenv("PORT") != "" {
 		port = os.Getenv("PORT")
@@ -98,54 +84,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var srv *grpc.Server
-	if os.Getenv("DISABLE_STATS") == "" {
-		log.Info("Stats enabled.")
-		srv = grpc.NewServer(
-			grpc.UnaryInterceptor(grpcotel.UnaryServerInterceptor(global.Tracer(""))),
-			grpc.StreamInterceptor(grpcotel.StreamServerInterceptor(global.Tracer(""))),
-		)
-	} else {
-		log.Info("Stats disabled.")
-		srv = grpc.NewServer()
-	}
+	srv := grpc.NewServer()
 	pb.RegisterCheckoutServiceServer(srv, svc)
 	healthpb.RegisterHealthServer(srv, svc)
 	log.Infof("starting to listen on tcp: %q", lis.Addr().String())
 	err = srv.Serve(lis)
 	log.Fatal(err)
-}
-
-func initTracer(log logrus.FieldLogger) func() {
-	podIp := os.Getenv("POD_IP")
-	podName := os.Getenv("POD_NAME")
-	nodeName := os.Getenv("NODE_NAME")
-	svcAddr := os.Getenv("JAEGER_SERVICE_ADDR")
-	if svcAddr == "" {
-		log.Info("jaeger initialization disabled.")
-	}
-	endPoint := fmt.Sprintf("http://%s", svcAddr)
-	flush, err := jaeger.InstallNewPipeline(
-		jaeger.WithCollectorEndpoint(endPoint),
-		jaeger.WithProcess(jaeger.Process{
-			ServiceName: "checkoutservice",
-			Tags: []kv.KeyValue{
-				kv.String("exporter", "jaeger"),
-				kv.Float64("float", 312.23),
-				kv.String("ip", podIp),
-				kv.String("name", podName),
-				kv.String("node_name", nodeName),
-			},
-		}),
-		jaeger.WithSDK(&sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Info("jaeger initialization completed.")
-	return func() {
-		flush()
-	}
 }
 
 func mustMapEnv(target *string, envKey string) {
@@ -247,10 +191,7 @@ func (cs *checkoutService) prepareOrderItemsAndShippingQuoteFromCart(ctx context
 }
 
 func (cs *checkoutService) quoteShipping(ctx context.Context, address *pb.Address, items []*pb.CartItem) (*pb.Money, error) {
-	conn, err := grpc.Dial(cs.shippingSvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.shippingSvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("could not connect shipping service: %+v", err)
 	}
@@ -267,10 +208,7 @@ func (cs *checkoutService) quoteShipping(ctx context.Context, address *pb.Addres
 }
 
 func (cs *checkoutService) getUserCart(ctx context.Context, userID string) ([]*pb.CartItem, error) {
-	conn, err := grpc.Dial(cs.cartSvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.cartSvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("could not connect cart service: %+v", err)
 	}
@@ -284,10 +222,7 @@ func (cs *checkoutService) getUserCart(ctx context.Context, userID string) ([]*p
 }
 
 func (cs *checkoutService) emptyUserCart(ctx context.Context, userID string) error {
-	conn, err := grpc.Dial(cs.cartSvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.cartSvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return fmt.Errorf("could not connect cart service: %+v", err)
 	}
@@ -301,10 +236,7 @@ func (cs *checkoutService) emptyUserCart(ctx context.Context, userID string) err
 
 func (cs *checkoutService) prepOrderItems(ctx context.Context, items []*pb.CartItem, userCurrency string) ([]*pb.OrderItem, error) {
 	out := make([]*pb.OrderItem, len(items))
-	conn, err := grpc.Dial(cs.productCatalogSvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.productCatalogSvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("could not connect product catalog service: %+v", err)
 	}
@@ -328,10 +260,7 @@ func (cs *checkoutService) prepOrderItems(ctx context.Context, items []*pb.CartI
 }
 
 func (cs *checkoutService) convertCurrency(ctx context.Context, from *pb.Money, toCurrency string) (*pb.Money, error) {
-	conn, err := grpc.Dial(cs.currencySvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.currencySvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return nil, fmt.Errorf("could not connect currency service: %+v", err)
 	}
@@ -346,10 +275,7 @@ func (cs *checkoutService) convertCurrency(ctx context.Context, from *pb.Money, 
 }
 
 func (cs *checkoutService) chargeCard(ctx context.Context, amount *pb.Money, paymentInfo *pb.CreditCardInfo) (string, error) {
-	conn, err := grpc.Dial(cs.paymentSvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.paymentSvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return "", fmt.Errorf("failed to connect payment service: %+v", err)
 	}
@@ -365,10 +291,7 @@ func (cs *checkoutService) chargeCard(ctx context.Context, amount *pb.Money, pay
 }
 
 func (cs *checkoutService) sendOrderConfirmation(ctx context.Context, email string, order *pb.OrderResult) error {
-	conn, err := grpc.Dial(cs.emailSvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.emailSvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return fmt.Errorf("failed to connect email service: %+v", err)
 	}
@@ -380,10 +303,7 @@ func (cs *checkoutService) sendOrderConfirmation(ctx context.Context, email stri
 }
 
 func (cs *checkoutService) shipOrder(ctx context.Context, address *pb.Address, items []*pb.CartItem) (string, error) {
-	conn, err := grpc.Dial(cs.shippingSvcAddr, grpc.WithInsecure(),
-		grpc.WithUnaryInterceptor(grpcotel.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpcotel.StreamClientInterceptor(global.Tracer(""))),
-	)
+	conn, err := grpc.Dial(cs.shippingSvcAddr, grpc.WithInsecure())
 	if err != nil {
 		return "", fmt.Errorf("failed to connect email service: %+v", err)
 	}
@@ -396,5 +316,3 @@ func (cs *checkoutService) shipOrder(ctx context.Context, address *pb.Address, i
 	}
 	return resp.GetTrackingId(), nil
 }
-
-// TODO: Dial and create client once, reuse.

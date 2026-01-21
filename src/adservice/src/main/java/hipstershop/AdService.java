@@ -17,79 +17,28 @@
 package hipstershop;
 
 import com.google.common.collect.ImmutableListMultimap;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Iterables;
 import hipstershop.Demo.Ad;
 import hipstershop.Demo.AdRequest;
 import hipstershop.Demo.AdResponse;
-import io.grpc.Context;
-import io.grpc.Contexts;
-import io.grpc.Grpc;
-import io.grpc.Metadata;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
-import io.grpc.ServerCall;
-import io.grpc.ServerCallHandler;
 import io.grpc.stub.StreamObserver;
 import io.grpc.StatusRuntimeException;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import io.grpc.services.*;
-import io.grpc.stub.StreamObserver;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Random;
-import java.net.InetSocketAddress;
-import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import io.opentelemetry.OpenTelemetry;
-import io.opentelemetry.exporters.zipkin.ZipkinSpanExporter;
-import io.opentelemetry.sdk.OpenTelemetrySdk;
-import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
-import io.opentelemetry.trace.Span;
-import io.opentelemetry.trace.Tracer;
-import io.opentelemetry.context.ContextUtils;
-import io.opentelemetry.context.Scope;
-import io.opentelemetry.context.propagation.HttpTextFormat;
-import io.opentelemetry.sdk.trace.TracerSdkProvider;
-import io.opentelemetry.trace.Tracer;
-import io.opentelemetry.trace.Status;
 
 public final class AdService {
 
   private static final Logger logger = LogManager.getLogger(AdService.class);
-  private Tracer tracer = OpenTelemetry.getTracer("AdService");
-
-  private static final String podName = System.getenv("POD_NAME");
-  private static final String nodeName = System.getenv("NODE_NAME");
-
-  private static final String ENDPOINT_V2_SPANS = "/api/v2/spans";
-  private static final String ip = System.getenv("JAEGER_HOST");
-  private static final String port = System.getenv("ZIPKIN_PORT");
-  private static final String endpoint = String.format("http://%s:%s%s", ip, port, ENDPOINT_V2_SPANS );
-  private ZipkinSpanExporter exporter  =  ZipkinSpanExporter.newBuilder()
-                                                    .setEndpoint(endpoint)
-                                                    .setServiceName("adservice")
-                                                    .build();
-
-  private HttpTextFormat textFormat = OpenTelemetry.getPropagators().getHttpTextFormat();
-
-  // Extract the Distributed Context from the gRPC metadata
-  HttpTextFormat.Getter<Metadata> getter =
-      new HttpTextFormat.Getter<Metadata>() {
-        @Override
-        public String get(Metadata carrier, String key) {
-          Metadata.Key<String> k = Metadata.Key.of(key, Metadata.ASCII_STRING_MARSHALLER);
-          if (carrier.containsKey(k)) {
-            return carrier.get(k);
-          }
-          return "";
-        }
-      };
-
 
   @SuppressWarnings("FieldCanBeLocal")
   private static int MAX_ADS_TO_SERVE = 2;
@@ -106,7 +55,6 @@ public final class AdService {
     server = ServerBuilder.forPort(port)
               .addService(new AdServiceImpl())
               .addService(healthMgr.getHealthService())
-              .intercept(new OpenTelemetryServerInterceptor())
               .build()
               .start();
     logger.info("Ad Service started, listening on " + port);
@@ -121,8 +69,6 @@ public final class AdService {
                   System.err.println("*** server shut down");
                 }));
     healthMgr.setStatus("", ServingStatus.SERVING);
-    OpenTelemetrySdk.getTracerProvider()
-                .addSpanProcessor(SimpleSpanProcessor.newBuilder(exporter).build());
   }
 
   private void stop() {
@@ -153,12 +99,10 @@ public final class AdService {
             allAds.addAll(ads);
           }
         } else {
-          //span.addAnnotation("No Context provided. Constructing random Ads.");
           allAds = service.getRandomAds();
         }
         if (allAds.isEmpty()) {
           // Serve random ads.
-          //span.addAnnotation("No Ads found based on context. Constructing random Ads.");
           allAds = service.getRandomAds();
         }
         AdResponse reply = AdResponse.newBuilder().addAllAds(allAds).build();
@@ -244,57 +188,8 @@ public final class AdService {
         .build();
   }
 
-  private class OpenTelemetryServerInterceptor implements io.grpc.ServerInterceptor {
-    @Override
-    public <ReqT, RespT> ServerCall.Listener<ReqT> interceptCall(
-        ServerCall<ReqT, RespT> call, Metadata headers, ServerCallHandler<ReqT, RespT> next) {
-      // Extract the Span Context from the metadata of the gRPC request
-      Context extractedContext = textFormat.extract(Context.current(), headers, getter);
-      InetSocketAddress clientInfo =
-          (InetSocketAddress) call.getAttributes().get(Grpc.TRANSPORT_ATTR_REMOTE_ADDR);
-      // Build a span based on the received context
-      try (Scope scope = ContextUtils.withScopedContext(extractedContext)) {
-        Span span =
-            tracer
-                .spanBuilder("hipstershop.AdService/GetAds")
-                .setSpanKind(Span.Kind.SERVER)
-                .startSpan();
-        span.setAttribute("component", "grpc");
-        span.setAttribute("rpc.service", "hipstershop.AdService");
-        span.setAttribute("net.peer.ip", clientInfo.getHostString());
-        span.setAttribute("net.peer.port", clientInfo.getPort());
-        span.setAttribute("name", podName);
-        span.setAttribute("node_name", nodeName);
-        // Process the gRPC call normally
-        try {
-          span.setStatus(Status.OK);
-          return Contexts.interceptCall(Context.current(), call, headers, next);
-        } finally {
-          span.end();
-        }
-      }
-    }
-  }
-
   /** Main launches the server from the command line. */
   public static void main(String[] args) throws IOException, InterruptedException {
-    // Registers all RPC views.
-    /*
-     [TODO:rghetia] replace registerAllViews with registerAllGrpcViews. registerAllGrpcViews
-     registers new views using new measures however current grpc version records against old
-     measures. When new version of grpc (0.19) is release revert back to new. After reverting back
-     to new the new measure will not provide any tags (like method). This will create some
-     discrepencies when compared grpc measurements in Go services.
-    */
-    //RpcViews.registerAllViews();
-
-    //new Thread(
-    //        () -> {
-    //          initStats();
-    //          initTracing();
-    //        })
-    //    .start();
-    // Start the RPC server. You shouldn't see any output from gRPC before this.
     logger.info("AdService starting.");
     final AdService service = AdService.getInstance();
     service.start();

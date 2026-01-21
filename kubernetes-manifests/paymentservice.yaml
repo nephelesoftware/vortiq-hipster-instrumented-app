@@ -29,19 +29,13 @@ spec:
       terminationGracePeriodSeconds: 5
       containers:
       - name: server
-        image: registry.cn-shenzhen.aliyuncs.com/trainticket/hipster-paymentservice:testbed
+        image: paymentservice
+        imagePullPolicy: Never
         ports:
         - containerPort: 50051
         env:
         - name: PORT
           value: "50051"
-        - name: JAEGER_HOST
-          # value: "jaeger"
-          valueFrom:
-            fieldRef:
-              fieldPath: status.hostIP
-        - name: JAEGER_PORT
-          value: "6832"
         - name: POD_IP
           valueFrom:
             fieldRef:

@@ -1,9 +1,10 @@
-FROM python:3.7-slim
+FROM python:3.11-slim
 RUN apt-get update -qqy && \
 	apt-get -qqy install wget g++ procps && \
 	rm -rf /var/lib/apt/lists/*
 # show python logs as they occur
 ENV PYTHONUNBUFFERED=0
+ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 # download the grpc health probe
 RUN GRPC_HEALTH_PROBE_VERSION=v0.2.0 && \

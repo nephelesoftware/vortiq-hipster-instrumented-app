@@ -13,7 +13,7 @@
 // limitations under the License.
 
 const cardValidator = require('simple-card-validator');
-const uuid = require('uuid/v4');
+const uuid = require('uuid').v4;
 const pino = require('pino');
 
 const logger = pino({

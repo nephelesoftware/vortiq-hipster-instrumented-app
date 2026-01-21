@@ -24,14 +24,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/kv"
-	"go.opentelemetry.io/otel/exporters/trace/jaeger"
-	"go.opentelemetry.io/otel/instrumentation/grpctrace"
 	"google.golang.org/grpc"
-
-	otelhttp "go.opentelemetry.io/contrib/instrumentation/net/http"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 const (
@@ -93,8 +86,6 @@ func main() {
 	}
 	log.Out = os.Stdout
 
-	initTracer(log)
-
 	srvPort := port
 	if os.Getenv("PORT") != "" {
 		srvPort = os.Getenv("PORT")
@@ -103,7 +94,6 @@ func main() {
 	svc := new(frontendServer)
 	mustMapEnv(&svc.productCatalogSvcAddr, "PRODUCT_CATALOG_SERVICE_ADDR")
 	mustMapEnv(&svc.currencySvcAddr, "CURRENCY_SERVICE_ADDR")
-	// svc.cartSvcAddr = "localhost:7070"
 	mustMapEnv(&svc.cartSvcAddr, "CART_SERVICE_ADDR")
 	mustMapEnv(&svc.recommendationSvcAddr, "RECOMMENDATION_SERVICE_ADDR")
 	mustMapEnv(&svc.checkoutSvcAddr, "CHECKOUT_SERVICE_ADDR")
@@ -134,48 +124,9 @@ func main() {
 	var handler http.Handler = r
 	handler = &logHandler{log: log, next: handler} // add logging
 	handler = ensureSessionID(handler)             // add session ID
-	handler = otelhttp.NewHandler(handler, "hipstershop.Frontend/Recv.")
 
 	log.Infof("starting server on " + addr + ":" + srvPort)
 	log.Fatal(http.ListenAndServe(addr+":"+srvPort, handler))
-}
-
-// initTracer creates a new trace provider instance and registers it as global trace provider.
-func initTracer(log logrus.FieldLogger) func() {
-
-	svcAddr := os.Getenv("JAEGER_SERVICE_ADDR")
-	// svcAddr := "http://localhost:14268/api/traces"
-	podIp := os.Getenv("POD_IP")
-	podName := os.Getenv("POD_NAME")
-	nodeName := os.Getenv("NODE_NAME")
-
-	if svcAddr == "" {
-		log.Info("jaeger initialization disabled.")
-	}
-	endPoint := fmt.Sprintf("http://%s", svcAddr)
-	// Create and install Jaeger export pipeline
-	flush, err := jaeger.InstallNewPipeline(
-		jaeger.WithCollectorEndpoint(endPoint),
-		jaeger.WithProcess(jaeger.Process{
-			ServiceName: "frontend",
-			Tags: []kv.KeyValue{
-				kv.String("exporter", "jaeger"),
-				kv.Float64("float", 312.23),
-				kv.String("ip", podIp),
-				kv.String("name", podName),
-				kv.String("node_name", nodeName),
-			},
-		}),
-		jaeger.WithSDK(&sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Info("jaeger initialization completed.")
-	return func() {
-		flush()
-	}
 }
 
 func mustMapEnv(target *string, envKey string) {
@@ -191,8 +142,6 @@ func mustConnGRPC(ctx context.Context, conn **grpc.ClientConn, addr string) {
 	*conn, err = grpc.DialContext(ctx, addr,
 		grpc.WithInsecure(),
 		grpc.WithTimeout(time.Second*3),
-		grpc.WithUnaryInterceptor(grpctrace.UnaryClientInterceptor(global.Tracer(""))),
-		grpc.WithStreamInterceptor(grpctrace.StreamClientInterceptor(global.Tracer(""))),
 	)
 	if err != nil {
 		panic(errors.Wrapf(err, "grpc: failed to connect %s", addr))

@@ -28,8 +28,8 @@ spec:
     spec:
       containers:
         - name: server
-          image: registry.cn-shenzhen.aliyuncs.com/trainticket/hipster-checkoutservice:testbed
-          imagePullPolicy: Always
+          image: checkoutservice
+          imagePullPolicy: Never
           ports:
           - containerPort: 5050
           #readinessProbe:
@@ -71,8 +71,6 @@ spec:
                 fieldPath: spec.nodeName
           - name: DISABLE_PROFILER
             value: "1"
-          - name: JAEGER_SERVICE_ADDR
-            value: "jaeger-collector:14268/api/traces"
           resources:
             requests:
               cpu: 100m

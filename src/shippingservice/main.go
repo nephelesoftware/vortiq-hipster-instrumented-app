@@ -27,13 +27,6 @@ import (
 	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
-	"go.opentelemetry.io/otel/api/global"
-	"go.opentelemetry.io/otel/api/kv"
-	"go.opentelemetry.io/otel/exporters/trace/jaeger"
-
-	grpcotel "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc"
-	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/shippingservice/genproto"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -59,13 +52,6 @@ func init() {
 }
 
 func main() {
-	if os.Getenv("DISABLE_TRACING") == "" {
-		log.Info("Tracing enabled.")
-		initTracer(log)
-	} else {
-		log.Info("Tracing disabled.")
-	}
-
 	port := defaultPort
 	if value, ok := os.LookupEnv("PORT"); ok {
 		port = value
@@ -77,17 +63,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	var srv *grpc.Server
-	if os.Getenv("DISABLE_STATS") == "" {
-		log.Info("Stats enabled.")
-		srv = grpc.NewServer(
-			grpc.UnaryInterceptor(grpcotel.UnaryServerInterceptor(global.Tracer(""))),
-			grpc.StreamInterceptor(grpcotel.StreamServerInterceptor(global.Tracer(""))),
-		)
-	} else {
-		log.Info("Stats disabled.")
-		srv = grpc.NewServer()
-	}
+	srv := grpc.NewServer()
 	svc := &server{}
 	pb.RegisterShippingServiceServer(srv, svc)
 	healthpb.RegisterHealthServer(srv, svc)
@@ -149,36 +125,4 @@ func (s *server) ShipOrder(ctx context.Context, in *pb.ShipOrderRequest) (*pb.Sh
 	return &pb.ShipOrderResponse{
 		TrackingId: id,
 	}, nil
-}
-
-func initTracer(log logrus.FieldLogger) func() {
-	svcAddr := os.Getenv("JAEGER_SERVICE_ADDR")
-	podIp := os.Getenv("POD_IP")
-	podName := os.Getenv("POD_NAME")
-	nodeName := os.Getenv("NODE_NAME")
-	if svcAddr == "" {
-		log.Info("jaeger initialization disabled.")
-	}
-	endPoint := fmt.Sprintf("http://%s", svcAddr)
-	flush, err := jaeger.InstallNewPipeline(
-		jaeger.WithCollectorEndpoint(endPoint),
-		jaeger.WithProcess(jaeger.Process{
-			ServiceName: "shippingservice",
-			Tags: []kv.KeyValue{
-				kv.String("exporter", "jaeger"),
-				kv.Float64("float", 312.23),
-				kv.String("ip", podIp),
-				kv.String("name", podName),
-				kv.String("node_name", nodeName),
-			},
-		}),
-		jaeger.WithSDK(&sdktrace.Config{DefaultSampler: sdktrace.AlwaysSample()}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-	log.Info("jaeger initialization completed.")
-	return func() {
-		flush()
-	}
 }

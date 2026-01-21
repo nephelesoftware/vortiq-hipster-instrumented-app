@@ -1,4 +1,4 @@
-FROM openjdk:8-slim as builder
+FROM eclipse-temurin:8-jdk-jammy as builder
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ COPY . .
 RUN chmod +x gradlew
 RUN ./gradlew installDist
 
-FROM openjdk:8-slim
+FROM eclipse-temurin:8-jdk-jammy
 
 # Download Stackdriver Profiler Java agent
 RUN apt-get -y update && apt-get install -qqy \

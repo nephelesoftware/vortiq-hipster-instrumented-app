@@ -24,8 +24,6 @@ using Google.Protobuf;
 using Grpc.Core;
 using Hipstershop;
 using StackExchange.Redis;
-using OpenTelemetry;
-using OpenTelemetry.Trace;
 
 
 namespace cartservice.cartstore
@@ -36,7 +34,6 @@ namespace cartservice.cartstore
         private const int REDIS_RETRY_NUM = 5;
 
         private volatile ConnectionMultiplexer redis;
-        private volatile TracerProvider openTelemetry;
         private volatile bool isRedisConnectionOpened = false;
 
         private readonly object locker = new object();
@@ -85,38 +82,6 @@ namespace cartservice.cartstore
                 Console.WriteLine("Connecting to Redis: " + connectionString);
                 redis = ConnectionMultiplexer.Connect(redisConnectionOptions);
 
-                if (openTelemetry != null)
-                {
-                    openTelemetry.Dispose();
-                    openTelemetry = null;
-                }
-
-                openTelemetry = Sdk.CreateTracerProviderBuilder()
-                    .AddJaegerExporter(jaegerOptions =>
-                    {
-                        if (!int.TryParse(Environment.GetEnvironmentVariable("JAEGER_PORT"), out int port))
-                        {
-                            port = 8080;
-                        }
-
-                        jaegerOptions.ServiceName = "redis";
-                        jaegerOptions.AgentHost = Environment.GetEnvironmentVariable("JAEGER_HOST");
-                        jaegerOptions.AgentPort = port;
-                        jaegerOptions.ProcessTags = new Dictionary<string, object>{
-                            {"exporter","jaeger"},
-                            {"float", 312.23},
-                            {"ip",Environment.GetEnvironmentVariable("POD_IP")},
-                            {"podName",Environment.GetEnvironmentVariable("POD_NAME")},
-                            {"nodeName",Environment.GetEnvironmentVariable("NODE_NAME")},
-                        };
-                    })
-                    .AddRedisInstrumentation(redis, options =>
-                    {
-                        options.FlushInterval = TimeSpan.FromSeconds(5);
-                    })
-                    .AddSource("redis")
-                    .Build();
-                ActivitySource activitySource = new ActivitySource("redis");
 
                 if (redis == null || !redis.IsConnected)
                 {

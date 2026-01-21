@@ -29,8 +29,8 @@ spec:
       terminationGracePeriodSeconds: 5
       containers:
       - name: server
-        image: registry.cn-shenzhen.aliyuncs.com/trainticket/hipster-cartservice:testbed
-        imagePullPolicy: Always
+        image: cartservice
+        imagePullPolicy: Never
         ports:
         - containerPort: 7070
         env:
@@ -42,13 +42,6 @@ spec:
           value: "0.0.0.0"
         - name: HIPSTER_SICK # Used for GCP demo
           value: "false"
-        - name: JAEGER_HOST
-          #value: "jaeger"
-          valueFrom:
-            fieldRef:
-              fieldPath: status.hostIP
-        - name: JAEGER_PORT
-          value: "6831"
         - name: POD_IP
           valueFrom:
             fieldRef:

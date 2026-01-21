@@ -1,4 +1,4 @@
-FROM python:3.7-slim as base
+FROM python:3.11-slim as base
 
 FROM base as builder
 
@@ -14,6 +14,7 @@ RUN pip install -r requirements.txt
 FROM base as final
 # Enable unbuffered logging
 ENV PYTHONUNBUFFERED=1
+ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 # Enable Profiler
 ENV ENABLE_PROFILER=1
 
@@ -30,7 +31,7 @@ RUN GRPC_HEALTH_PROBE_VERSION=v0.2.0 && \
 WORKDIR /email_server
 
 # Grab packages from builder
-COPY --from=builder /usr/local/lib/python3.7/ /usr/local/lib/python3.7/
+COPY --from=builder /usr/local/lib/python3.11/ /usr/local/lib/python3.11/
 
 # Add the application
 COPY . .
