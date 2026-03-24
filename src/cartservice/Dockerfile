@@ -1,28 +1,12 @@
-FROM mcr.microsoft.com/dotnet/core/sdk:3.1-buster as builder
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS builder
 WORKDIR /app
 COPY . .
-RUN dotnet restore && \
-    dotnet build && \
-    dotnet publish -c release -r linux-musl-x64 -o /cartservice
+RUN dotnet restore &&     dotnet publish -c release -o /cartservice
 
-# cartservice
-FROM alpine:3.18
+FROM mcr.microsoft.com/dotnet/aspnet:8.0-alpine
 
-RUN GRPC_HEALTH_PROBE_VERSION=v0.2.0 && \
-    wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 && \
-    chmod +x /bin/grpc_health_probe
+RUN apk add --no-cache wget &&     GRPC_HEALTH_PROBE_VERSION=v0.4.25 &&     wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-amd64 &&     chmod +x /bin/grpc_health_probe
 
-# Dependencies for runtime
-# busybox-extras => telnet
-RUN apk add --no-cache \
-    busybox-extras \
-    libc6-compat \
-    libunwind \
-    libuuid \
-    libgcc \
-    libstdc++ \
-    libintl \
-    icu
 WORKDIR /app
 COPY --from=builder /cartservice .
-ENTRYPOINT ["./cartservice", "start"]
+ENTRYPOINT ["dotnet", "cartservice.dll", "start"]
