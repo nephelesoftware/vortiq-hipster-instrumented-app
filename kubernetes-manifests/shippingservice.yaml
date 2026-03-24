@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
       - name: server
-        image: shippingservice
+        image: docker.io/library/shippingservice:naked
         imagePullPolicy: Never
         ports:
         - containerPort: 50051

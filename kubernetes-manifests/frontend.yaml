@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: server
-          image: frontend
+          image: docker.io/library/frontend:naked
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

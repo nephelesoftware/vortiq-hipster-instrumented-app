@@ -29,7 +29,7 @@ spec:
       terminationGracePeriodSeconds: 5
       containers:
       - name: server
-        image: emailservice
+        image: docker.io/library/emailservice:naked
         imagePullPolicy: Never
         ports:
         - containerPort: 8080

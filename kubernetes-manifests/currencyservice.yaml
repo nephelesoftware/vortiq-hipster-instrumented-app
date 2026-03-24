@@ -29,7 +29,7 @@ spec:
       terminationGracePeriodSeconds: 5
       containers:
       - name: server
-        image: currencyservice
+        image: docker.io/library/currencyservice:naked
         imagePullPolicy: Never
         ports:
         - name: grpc

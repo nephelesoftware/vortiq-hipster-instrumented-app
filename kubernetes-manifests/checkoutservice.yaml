@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: server
-          image: checkoutservice
+          image: docker.io/library/checkoutservice:naked
           imagePullPolicy: Never
           ports:
           - containerPort: 5050
