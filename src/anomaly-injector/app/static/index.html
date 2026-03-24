@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vortiq Anomaly Control Center</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+
+    @keyframes pulse-badge {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.4; }
+    }
+    .badge-running {
+      animation: pulse-badge 1.5s ease-in-out infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 4px;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-900 text-gray-100 min-h-screen" x-data="anomalyDashboard()" x-init="init()" x-cloak>
+
+  <!-- ===== Header ===== -->
+  <header class="bg-gray-800 border-b border-gray-700 shadow-lg">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight text-white">
+          Vortiq Anomaly Control Center
+        </h1>
+        <p class="text-sm text-gray-400 mt-0.5">Hipster Shop &mdash; Chaos Engineering Dashboard</p>
+      </div>
+      <div class="flex items-center gap-6 text-sm">
+        <!-- Summary bar -->
+        <div class="flex items-center gap-2">
+          <span class="font-semibold text-gray-300">Running:</span>
+          <span
+            class="px-2.5 py-0.5 rounded-full font-bold text-base"
+            :class="runningCount > 0 ? 'bg-green-700 text-green-100' : 'bg-gray-700 text-gray-400'"
+            x-text="runningCount + ' / ' + anomalies.length"
+          ></span>
+        </div>
+        <!-- Last updated -->
+        <div class="text-gray-500">
+          Updated: <span class="text-gray-300" x-text="lastUpdated"></span>
+        </div>
+        <!-- Connectivity indicator -->
+        <div class="flex items-center gap-1.5">
+          <span
+            class="w-2.5 h-2.5 rounded-full inline-block"
+            :class="connected ? 'bg-green-400' : 'bg-red-500'"
+          ></span>
+          <span class="text-gray-400" x-text="connected ? 'Live' : 'Offline'"></span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== Main Grid ===== -->
+  <main class="max-w-7xl mx-auto px-6 py-8">
+
+    <!-- Error banner -->
+    <div
+      x-show="globalError"
+      class="mb-6 bg-red-900 border border-red-700 text-red-200 rounded-lg px-4 py-3 flex items-start gap-3"
+    >
+      <svg class="w-5 h-5 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm-.75-11.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm.75 7a1 1 0 110-2 1 1 0 010 2z" clip-rule="evenodd"/>
+      </svg>
+      <div>
+        <p class="font-semibold">API Error</p>
+        <p class="text-sm" x-text="globalError"></p>
+      </div>
+      <button @click="globalError = null" class="ml-auto text-red-400 hover:text-red-200">&times;</button>
+    </div>
+
+    <!-- Loading state -->
+    <div x-show="loading && anomalies.length === 0" class="text-center py-24 text-gray-500">
+      <div class="spinner mx-auto mb-4" style="width:32px;height:32px;border-width:4px;"></div>
+      <p class="text-lg">Loading anomalies&hellip;</p>
+    </div>
+
+    <!-- Anomaly cards grid -->
+    <div
+      x-show="anomalies.length > 0"
+      class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"
+    >
+      <template x-for="anomaly in anomalies" :key="anomaly.id">
+        <div
+          class="bg-gray-800 border rounded-xl p-5 flex flex-col gap-4 transition-all duration-300"
+          :class="{
+            'border-green-600 shadow-green-900/40 shadow-lg': anomaly.status === 'running',
+            'border-red-600': anomaly.status === 'error',
+            'border-yellow-600': anomaly.status === 'stopping',
+            'border-gray-700': anomaly.status === 'idle'
+          }"
+        >
+          <!-- Card header -->
+          <div class="flex items-start justify-between gap-2">
+            <div class="flex-1 min-w-0">
+              <!-- Scenario number derived from id prefix like "s01_..." -->
+              <p class="text-xs text-gray-500 font-mono mb-0.5" x-text="scenarioLabel(anomaly.id)"></p>
+              <h2 class="font-bold text-white text-base leading-tight" x-text="anomaly.name"></h2>
+            </div>
+            <!-- Status badge -->
+            <span
+              class="px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wide flex-shrink-0"
+              :class="badgeClass(anomaly.status)"
+              x-text="anomaly.status"
+            ></span>
+          </div>
+
+          <!-- Description -->
+          <p class="text-sm text-gray-400 leading-relaxed" x-text="anomaly.description"></p>
+
+          <!-- Affected services -->
+          <div class="flex flex-wrap gap-1.5">
+            <template x-for="svc in anomaly.affected_services" :key="svc">
+              <span
+                class="bg-gray-700 text-gray-300 text-xs px-2 py-0.5 rounded-md font-mono"
+                x-text="svc"
+              ></span>
+            </template>
+          </div>
+
+          <!-- Expected impact -->
+          <p class="text-xs text-gray-500 italic" x-text="'Impact: ' + anomaly.expected_impact"></p>
+
+          <!-- Elapsed time (when running) -->
+          <div
+            x-show="anomaly.status === 'running' && anomaly.started_at"
+            class="text-xs text-green-400 font-mono"
+          >
+            Elapsed: <span x-text="elapsed(anomaly.started_at)"></span>
+          </div>
+
+          <!-- Error message -->
+          <div
+            x-show="anomaly.status === 'error' && anomaly.error_message"
+            class="bg-red-900/40 border border-red-700 rounded-lg px-3 py-2 text-xs text-red-300 break-all"
+          >
+            <span class="font-semibold">Error: </span><span x-text="anomaly.error_message"></span>
+          </div>
+
+          <!-- Action buttons -->
+          <div class="flex gap-3 mt-auto pt-2">
+            <!-- Start -->
+            <button
+              @click="startAnomaly(anomaly)"
+              :disabled="anomaly.status === 'running' || anomaly.status === 'stopping' || loadingStates[anomaly.id]"
+              class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150
+                     bg-green-700 hover:bg-green-600 text-white
+                     disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-green-700"
+            >
+              <span x-show="loadingStates[anomaly.id] === 'starting'" class="spinner"></span>
+              <svg x-show="!loadingStates[anomaly.id] || loadingStates[anomaly.id] !== 'starting'" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 010 1.972l-11.54 6.347c-.75.412-1.667-.13-1.667-.986V5.653z"/>
+              </svg>
+              Start
+            </button>
+
+            <!-- Stop -->
+            <button
+              @click="stopAnomaly(anomaly)"
+              :disabled="anomaly.status !== 'running' || loadingStates[anomaly.id]"
+              class="flex-1 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150
+                     bg-red-700 hover:bg-red-600 text-white
+                     disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-red-700"
+            >
+              <span x-show="loadingStates[anomaly.id] === 'stopping'" class="spinner"></span>
+              <svg x-show="!loadingStates[anomaly.id] || loadingStates[anomaly.id] !== 'stopping'" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z"/>
+              </svg>
+              Stop
+            </button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </main>
+
+  <!-- ===== Footer ===== -->
+  <footer class="mt-12 border-t border-gray-800 py-4 text-center text-xs text-gray-600">
+    Vortiq Anomaly Injector &mdash; Hipster Shop Chaos Engineering &mdash; v1.0.0
+  </footer>
+
+  <script>
+    function anomalyDashboard() {
+      return {
+        anomalies: [],
+        loadingStates: {},   // anomaly_id -> 'starting' | 'stopping' | null
+        loading: true,
+        connected: false,
+        globalError: null,
+        lastUpdated: '--:--:--',
+        _ticker: null,       // setInterval handle for elapsed-time display
+        _poller: null,       // setInterval handle for API polling
+
+        // ------------------------------------------------------------------
+        init() {
+          this.fetchAnomalies();
+          this._poller = setInterval(() => this.fetchAnomalies(), 3000);
+          // Redraw elapsed counters every second
+          this._ticker = setInterval(() => { /* Alpine re-evaluates x-text */ }, 1000);
+        },
+
+        // ------------------------------------------------------------------
+        async fetchAnomalies() {
+          try {
+            const res = await fetch('/api/anomalies');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            this.anomalies = await res.json();
+            this.connected = true;
+            this.lastUpdated = new Date().toLocaleTimeString();
+          } catch (err) {
+            this.connected = false;
+            console.error('Poll error:', err);
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        // ------------------------------------------------------------------
+        async startAnomaly(anomaly) {
+          this.loadingStates = { ...this.loadingStates, [anomaly.id]: 'starting' };
+          this.globalError = null;
+          try {
+            const res = await fetch(`/api/anomalies/${anomaly.id}/start`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ parameters: anomaly.parameters || {} }),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              this.globalError = data.detail || `Failed to start ${anomaly.name}`;
+            } else {
+              this.mergeAnomaly(data);
+            }
+          } catch (err) {
+            this.globalError = `Network error: ${err.message}`;
+          } finally {
+            this.loadingStates = { ...this.loadingStates, [anomaly.id]: null };
+          }
+        },
+
+        // ------------------------------------------------------------------
+        async stopAnomaly(anomaly) {
+          this.loadingStates = { ...this.loadingStates, [anomaly.id]: 'stopping' };
+          this.globalError = null;
+          try {
+            const res = await fetch(`/api/anomalies/${anomaly.id}/stop`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({}),
+            });
+            const data = await res.json();
+            if (!res.ok) {
+              this.globalError = data.detail || `Failed to stop ${anomaly.name}`;
+            } else {
+              this.mergeAnomaly(data);
+            }
+          } catch (err) {
+            this.globalError = `Network error: ${err.message}`;
+          } finally {
+            this.loadingStates = { ...this.loadingStates, [anomaly.id]: null };
+          }
+        },
+
+        // ------------------------------------------------------------------
+        mergeAnomaly(updated) {
+          const idx = this.anomalies.findIndex(a => a.id === updated.id);
+          if (idx !== -1) {
+            this.anomalies[idx] = updated;
+            this.anomalies = [...this.anomalies];  // trigger Alpine reactivity
+          }
+        },
+
+        // ------------------------------------------------------------------
+        get runningCount() {
+          return this.anomalies.filter(a => a.status === 'running').length;
+        },
+
+        // ------------------------------------------------------------------
+        badgeClass(status) {
+          return {
+            idle:     'bg-gray-700 text-gray-300',
+            running:  'bg-green-700 text-green-100 badge-running',
+            error:    'bg-red-700 text-red-100',
+            stopping: 'bg-yellow-700 text-yellow-100',
+          }[status] || 'bg-gray-700 text-gray-300';
+        },
+
+        // ------------------------------------------------------------------
+        scenarioLabel(id) {
+          // "s01_productcatalog_latency" -> "Scenario 01"
+          const m = id.match(/^s(\d+)_/);
+          return m ? `Scenario ${m[1]}` : id;
+        },
+
+        // ------------------------------------------------------------------
+        elapsed(startedAt) {
+          if (!startedAt) return '';
+          const start = new Date(startedAt);
+          const now = new Date();
+          let diff = Math.floor((now - start) / 1000);
+          if (diff < 0) diff = 0;
+          const h = Math.floor(diff / 3600);
+          const m = Math.floor((diff % 3600) / 60);
+          const s = diff % 60;
+          const pad = n => String(n).padStart(2, '0');
+          return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+        },
+      };
+    }
+  </script>
+</body>
+</html>
