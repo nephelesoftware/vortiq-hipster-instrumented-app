@@ -34,6 +34,10 @@ import (
 	"github.com/golang/protobuf/jsonpb"
 	"github.com/sirupsen/logrus"
 
+	vortiq "github.com/nephele/vortiq-go-sdk"
+	vortiqlogrus "github.com/nephele/vortiq-go-sdk/bridge/logrus"
+	"github.com/nephele/vortiq-go-sdk/middleware"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -42,7 +46,7 @@ import (
 var (
 	cat          pb.ListProductsResponse
 	catalogMutex *sync.Mutex
-	log          *logrus.Logger
+	log          = logrus.StandardLogger()
 	extraLatency time.Duration
 
 	port = "3550"
@@ -51,7 +55,9 @@ var (
 )
 
 func main() {
-	log = logrus.New()
+	shutdown := vortiq.Init("productcatalogservice", vortiqlogrus.Bridge())
+	defer shutdown()
+
 	log.Formatter = &logrus.JSONFormatter{
 		FieldMap: logrus.FieldMap{
 			logrus.FieldKeyTime:  "timestamp",
@@ -111,7 +117,7 @@ func run(port string) string {
 	if err != nil {
 		log.Fatal(err)
 	}
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(middleware.GRPCServer())
 
 	svc := &productCatalog{}
 

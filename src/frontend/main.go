@@ -24,6 +24,11 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	vortiq "github.com/nephele/vortiq-go-sdk"
+	vortiqlogrus "github.com/nephele/vortiq-go-sdk/bridge/logrus"
+	"github.com/nephele/vortiq-go-sdk/middleware"
+
 	"google.golang.org/grpc"
 )
 
@@ -73,8 +78,11 @@ type frontendServer struct {
 }
 
 func main() {
+	shutdown := vortiq.Init("frontend", vortiqlogrus.Bridge())
+	defer shutdown()
+
 	ctx := context.Background()
-	log := logrus.New()
+	log := logrus.StandardLogger()
 	log.Level = logrus.DebugLevel
 	log.Formatter = &logrus.JSONFormatter{
 		FieldMap: logrus.FieldMap{
@@ -124,6 +132,7 @@ func main() {
 	var handler http.Handler = r
 	handler = &logHandler{log: log, next: handler} // add logging
 	handler = ensureSessionID(handler)             // add session ID
+	handler = middleware.HTTP(handler)             // add vortiq tracing
 
 	log.Infof("starting server on " + addr + ":" + srvPort)
 	log.Fatal(http.ListenAndServe(addr+":"+srvPort, handler))

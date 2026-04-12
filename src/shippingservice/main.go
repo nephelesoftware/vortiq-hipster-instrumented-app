@@ -21,6 +21,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
+	vortiq "github.com/nephele/vortiq-go-sdk"
+	vortiqlogrus "github.com/nephele/vortiq-go-sdk/bridge/logrus"
+	"github.com/nephele/vortiq-go-sdk/middleware"
+
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -35,10 +40,9 @@ const (
 	defaultPort = "50051"
 )
 
-var log *logrus.Logger
+var log = logrus.StandardLogger()
 
 func init() {
-	log = logrus.New()
 	log.Level = logrus.DebugLevel
 	log.Formatter = &logrus.JSONFormatter{
 		FieldMap: logrus.FieldMap{
@@ -52,6 +56,9 @@ func init() {
 }
 
 func main() {
+	shutdown := vortiq.Init("shippingservice", vortiqlogrus.Bridge())
+	defer shutdown()
+
 	port := defaultPort
 	if value, ok := os.LookupEnv("PORT"); ok {
 		port = value
@@ -63,7 +70,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(middleware.GRPCServer())
 	svc := &server{}
 	pb.RegisterShippingServiceServer(srv, svc)
 	healthpb.RegisterHealthServer(srv, svc)
@@ -90,8 +97,8 @@ func (s *server) Watch(req *healthpb.HealthCheckRequest, ws healthpb.Health_Watc
 
 // GetQuote produces a shipping quote (cost) in USD.
 func (s *server) GetQuote(ctx context.Context, in *pb.GetQuoteRequest) (*pb.GetQuoteResponse, error) {
-	log.Info("[GetQuote] received request")
-	defer log.Info("[GetQuote] completed request")
+	log.WithContext(ctx).Info("[GetQuote] received request")
+	defer log.WithContext(ctx).Info("[GetQuote] completed request")
 
 	// 1. Our quote system requires the total number of items to be shipped.
 	count := 0
@@ -115,8 +122,8 @@ func (s *server) GetQuote(ctx context.Context, in *pb.GetQuoteRequest) (*pb.GetQ
 // ShipOrder mocks that the requested items will be shipped.
 // It supplies a tracking ID for notional lookup of shipment delivery status.
 func (s *server) ShipOrder(ctx context.Context, in *pb.ShipOrderRequest) (*pb.ShipOrderResponse, error) {
-	log.Info("[ShipOrder] received request")
-	defer log.Info("[ShipOrder] completed request")
+	log.WithContext(ctx).Info("[ShipOrder] received request")
+	defer log.WithContext(ctx).Info("[ShipOrder] completed request")
 	// 1. Create a Tracking ID
 	baseAddress := fmt.Sprintf("%s, %s, %s", in.Address.StreetAddress, in.Address.City, in.Address.State)
 	id := CreateTrackingId(baseAddress)
