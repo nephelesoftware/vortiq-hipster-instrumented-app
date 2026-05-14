@@ -9,12 +9,14 @@ RUN go mod edit \
       -replace github.com/nephele/vortiq-go-sdk=/build/sdk/go \
       -replace github.com/nephele/vortiq-go-sdk/bridge/logrus=/build/sdk/go/bridge/logrus \
       -require github.com/sirupsen/logrus@v1.9.3 \
+      -require google.golang.org/genproto@v0.0.0-20241007155032-5fefd90f89a9 \
+      -require google.golang.org/genproto/googleapis/rpc@v0.0.0-20241007155032-5fefd90f89a9 \
+      -require google.golang.org/genproto/googleapis/api@v0.0.0-20241007155032-5fefd90f89a9 \
       -droprequire google.golang.org/genproto \
       -droprequire go.opencensus.io \
       -droprequire go.opentelemetry.io/otel \
       -droprequire go.opentelemetry.io/otel/sdk \
-      -droprequire go.opentelemetry.io/otel/exporters/trace/jaeger \
-      -droprequire go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc && \
+      -droprequire go.opentelemetry.io/otel/exporters/trace/jaeger && \
     GONOSUMCHECK='*' GOFLAGS='-mod=mod' CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -o /checkoutservice .
 
 FROM alpine AS release
