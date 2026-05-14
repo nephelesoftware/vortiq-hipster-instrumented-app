@@ -1,0 +1,10 @@
+# Vortiq Hipstershop Go services — build manifest
+# Generated: 2026-05-14T10:05:15Z
+# Source git HEAD at time of build manifest: 60a0bd7
+# Image SHA tag (built from): d727b50
+# Build host: rhelos2.nephele.co.in
+
+frontend:vortiq-d727b50 sha256:bda2fe9abf817a9b59da4de3fbf05a0da514674d71522c38a58025b12a0b3922
+checkoutservice:vortiq-d727b50 sha256:88442c13de80ee8c32859e7d4e357070cb73716b169af93d597735fdad60d3b3
+productcatalogservice:vortiq-d727b50 sha256:6f6f4cf50ec90560c2d2b9b672e83a9daf1959b4e89e56a0f7ea4ee1c01df165
+shippingservice:vortiq-d727b50 sha256:1dbd9b72a6ddfd729a479513cf8aa1bbdb0419f5eb25b39ce76948dc70792e7c
