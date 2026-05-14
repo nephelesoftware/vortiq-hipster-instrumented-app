@@ -79,6 +79,16 @@ spec:
             value: http://$(HOST_IP):4317
           - name: OTEL_EXPORTER_OTLP_INSECURE
             value: "true"
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: OTEL_SERVICE_NAME
+            value: "checkoutservice"
+          - name: OTEL_LOGS_EXPORTER
+            value: "otlp"
+          - name: OTEL_RESOURCE_ATTRIBUTES
+            value: "k8s.container.name=server"
           resources:
             requests:
               cpu: 100m
