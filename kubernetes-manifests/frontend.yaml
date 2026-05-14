@@ -30,7 +30,7 @@ spec:
     spec:
       containers:
         - name: server
-          image: docker.io/library/frontend:naked
+          image: docker.io/library/frontend:vortiq-d727b50
           imagePullPolicy: Never
           ports:
             - containerPort: 8080

@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: server
-          image: docker.io/library/checkoutservice:naked
+          image: docker.io/library/checkoutservice:vortiq-d727b50
           imagePullPolicy: Never
           ports:
           - containerPort: 5050

@@ -29,7 +29,7 @@ spec:
       terminationGracePeriodSeconds: 5
       containers:
       - name: server
-        image: docker.io/library/productcatalogservice:naked
+        image: docker.io/library/productcatalogservice:vortiq-d727b50
         imagePullPolicy: Never
         ports:
         - containerPort: 3550
