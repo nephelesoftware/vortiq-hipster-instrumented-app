@@ -150,6 +150,7 @@ func mustConnGRPC(ctx context.Context, conn **grpc.ClientConn, addr string) {
 	var err error
 	*conn, err = grpc.DialContext(ctx, addr,
 		grpc.WithInsecure(),
+		middleware.GRPCClient(),
 		grpc.WithTimeout(time.Second*3),
 	)
 	if err != nil {

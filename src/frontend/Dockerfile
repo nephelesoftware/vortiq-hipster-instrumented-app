@@ -15,8 +15,7 @@ RUN go mod edit \
       -droprequire go.opencensus.io \
       -droprequire go.opentelemetry.io/otel \
       -droprequire go.opentelemetry.io/otel/sdk \
-      -droprequire go.opentelemetry.io/otel/exporters/trace/jaeger \
-      -droprequire go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc && \
+      -droprequire go.opentelemetry.io/otel/exporters/trace/jaeger && \
     GONOSUMCHECK='*' GOFLAGS='-mod=mod' CGO_ENABLED=0 go build -ldflags "-s -w" -tags netgo -o /frontend .
 
 FROM alpine AS release
