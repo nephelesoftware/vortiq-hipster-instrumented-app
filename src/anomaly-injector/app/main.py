@@ -3,6 +3,7 @@ import os
 from typing import List
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -18,6 +19,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Anomaly Injector", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialise Kubernetes and network clients, then build the anomaly registry.
 k8s = K8sClient()
@@ -35,7 +43,10 @@ app.mount("/static", StaticFiles(directory=_static_dir), name="static")
 
 @app.get("/", include_in_schema=False)
 async def root() -> FileResponse:
-    return FileResponse(os.path.join(_static_dir, "index.html"))
+    return FileResponse(
+        os.path.join(_static_dir, "index.html"),
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/api/anomalies", response_model=List[AnomalyInfo])

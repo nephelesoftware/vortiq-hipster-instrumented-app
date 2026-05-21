@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vortiq Anomaly Control Center</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/static/tailwind.min.js"></script>
+  <script defer src="/static/alpine.min.js"></script>
   <style>
     [x-cloak] { display: none !important; }
 
@@ -30,6 +30,14 @@
       animation: spin 0.7s linear infinite;
       vertical-align: middle;
       margin-right: 4px;
+    }
+
+    @keyframes modal-in {
+      from { opacity: 0; transform: scale(0.96); }
+      to   { opacity: 1; transform: scale(1); }
+    }
+    .modal-enter {
+      animation: modal-in 0.15s ease-out;
     }
   </style>
 </head>
@@ -115,7 +123,15 @@
             <div class="flex-1 min-w-0">
               <!-- Scenario number derived from id prefix like "s01_..." -->
               <p class="text-xs text-gray-500 font-mono mb-0.5" x-text="scenarioLabel(anomaly.id)"></p>
-              <h2 class="font-bold text-white text-base leading-tight" x-text="anomaly.name"></h2>
+              <h2
+                class="font-bold text-white text-base leading-tight cursor-pointer hover:text-blue-400 transition-colors duration-150 flex items-center gap-1 group"
+                @click="openExplanation(anomaly.id)"
+              >
+                <span x-text="anomaly.name"></span>
+                <svg class="w-3.5 h-3.5 text-gray-500 group-hover:text-blue-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a.75.75 0 000 1.5h.253a.25.25 0 01.244.304l-.459 2.066A1.75 1.75 0 0010.747 15H11a.75.75 0 000-1.5h-.253a.25.25 0 01-.244-.304l.459 2.066A1.75 1.75 0 009.253 9H9z" clip-rule="evenodd"/>
+                </svg>
+              </h2>
             </div>
             <!-- Status badge -->
             <span
@@ -211,6 +227,173 @@
         _ticker: null,       // setInterval handle for elapsed-time display
         _poller: null,       // setInterval handle for API polling
 
+        // Wizard modal state
+        activeExplanation: null,
+        explanationStep: 0,
+
+        explanations: {
+          s01_productcatalog_latency: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Uses tc netem via nsenter to add 800ms ± 200ms delay to outgoing packets on the productcatalogservice container\'s eth0 interface. The delay fires at the Linux kernel network layer, after the application has already closed its OTel span — so the service\'s own telemetry appears healthy while its callers suffer.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'productcatalogservice: OTel spans show ~0ms (span closes before kernel delay fires).\nfrontend: GetProduct and ListProducts calls block 800ms+ waiting for responses → avg latency spikes visibly.\ncheckoutservice: GetProduct calls during order placement → P95 latency climbs.\nrecommendationservice: its outbound calls to productcatalog are delayed, surfacing as latency in frontend recommendation traces.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: apm-svc-latency-warning and apm-svc-latency-critical on frontend and checkoutservice. svc-latency-spike ANOMALY on frontend. ep-latency-spike on product listing and detail endpoints.\n\nSilent: productcatalogservice itself shows normal latency — tc netem fires post-span. Key diagnostic: if productcatalog looks healthy but its callers are slow, suspect injected network delay.'
+              }
+            ]
+          },
+          s02_redis_saturation: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Launches a Kubernetes Job (redis-flood) that writes 500 keys of 10KB each to redis-cart via redis-cli SET, all with a 300s TTL. Total write: ~5MB injected in a burst, followed by sustained key presence for 5 minutes until TTLs expire.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'redis-cart: memory spikes ~5MB; CPU spikes during the write burst; eviction pressure increases if near memory limit.\ncartservice: all cart operations (AddItem, GetCart, EmptyCart) route through redis-cart → latency rises under Redis pressure.\nfrontend: cart badge, add-to-cart, and view-cart interactions slow down.\ncheckoutservice: GetCart call during PlaceOrder slows or fails.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: Redis entity health rules (memory, CPU). apm-svc-latency-warning on cartservice. svc-latency-spike ANOMALY on cartservice. ep-latency-warning on cart endpoints.\n\nRecovery: automatic after ~5 minutes when flood keys expire (TTL=300s), or immediately on stop (scenario flushes flood_key_* via EVAL).'
+              }
+            ]
+          },
+          s03_payment_flapping: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'An asyncio background loop calls delete_namespaced_pod("paymentservice") every 20 seconds. Kubernetes immediately schedules a replacement (desired replicas stays 1). The container restart counter on the replacement pod increments on each cycle.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'paymentservice: oscillates between Terminating → Pending → Running every ~20s; restart count climbs continuously.\ncheckoutservice: PlaceOrder calls paymentservice during the ~10–15s restart window → connection refused → intermittent error spikes.\nfrontend: checkout attempts fail during the payment downtime window, succeed between kills — a noisy, oscillating error pattern.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires reliably: k8scontainer-restarts-high (cumulative restart counter > 3, never decreases). apm-svc-error-rate-warning/critical on checkoutservice (intermittent spikes).\n\nDoes NOT fire: k8spod-phase-not-running and k8sdeployment-replicas-critical — each flap resolves in ~10–15s, shorter than the for_seconds=60 requirement. The K8s pod/deployment layer is effectively blind to this scenario\'s cycling.'
+              }
+            ]
+          },
+          s04_currency_outage: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Calls scale_deployment("currencyservice", 0). All running pods are terminated immediately by Kubernetes. No new pods are scheduled until stop() restores the original replica count. This is a hard, sustained outage — not a flap.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'currencyservice: 0 pods, 0 metrics, 0 spans — completely dark.\nfrontend: every page calls currency conversion to render prices → all price displays fail across homepage, product pages, and cart.\ncheckoutservice: cannot calculate order totals → every PlaceOrder call fails hard.\nUnlike s03 (intermittent), this is a sustained total failure affecting every user on every page.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: k8sdeployment-replicas-critical (0/1 available, sustained well beyond 60s). svc-calls-drop ANOMALY on currencyservice. apm-svc-error-rate-critical on frontend and checkoutservice. ep-error-rate-spike across checkout and product endpoints.\n\nThis scenario produces the most complete and reliable event coverage — the sustained outage satisfies every for_seconds threshold that faster scenarios miss.'
+              }
+            ]
+          },
+          s05_checkout_cascade: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Uses tc netem via nsenter to inject 1200ms ± 300ms network delay on checkoutservice\'s container network namespace. Every outbound call from checkoutservice — to all 6 downstream services — is delayed at the kernel level before leaving the container.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'checkoutservice calls 6 downstream services in sequence: cartservice, currencyservice, productcatalogservice, shippingservice, paymentservice, emailservice.\nEach outbound call incurs 1200ms delay → full PlaceOrder latency approaches 7+ seconds.\nAll 6 downstream services show elevated latency in distributed traces (their server spans block waiting for checkoutservice\'s delayed client requests).\nfrontend: checkout triggers a long hang before eventual success or timeout.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: apm-svc-latency-critical on checkoutservice (avg >> 1000ms). svc-latency-spike ANOMALY on checkoutservice. ep-latency-critical on checkout endpoints. Downstream services (cartservice, shippingservice, etc.) may trigger apm-svc-latency-warning.\n\nDistinct from s01: the delay is on the caller side (checkoutservice outbound), so the cascade fans out to all 6 downstream services simultaneously.'
+              }
+            ]
+          },
+          s06_memory_leak: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Launches a Kubernetes Job (memory-stressor) using the polinux/stress image. The container allocates 450MB against a 512Mi memory limit. When usage approaches the limit, the Linux OOM killer terminates the container. Kubernetes restarts it — creating a CrashLoopBackOff pattern.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'The stressor is a separate job — it does not run inside any application container.\nThe stressor pod itself cycles: allocates memory → OOMKilled → restarted by Kubernetes.\nThe K8s node hosting the stressor experiences memory pressure, which can affect co-located pods via resource competition.\nAPM-layer impact is indirect and node-dependent — service latency increases only if the stressor shares a node with application pods.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: k8scontainer-restarts-high on the stressor container. k8scontainer-mem-limit-critical as memory approaches 512Mi. k8spod-major-page-faults under heavy memory pressure.\n\nAPM signals are indirect — service latency increases only if node memory pressure causes CPU throttling or swap activity on co-located pods.'
+              }
+            ]
+          },
+          s07_cpu_burn: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Launches a Kubernetes Job (cpu-stressor) using polinux/stress with 4 worker threads spinning at 100% CPU for 300 seconds. No CPU limit is set on the container, so it can consume as much node CPU as available.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'The node running the stressor has its CPU capacity saturated by 4 busy-looping threads.\nAll pods co-located on the same node compete for CPU time — each gets less than its share.\nServices experience CPU throttling: request handling slows down, response times increase uniformly across all endpoints.\nLatency increases affect all services on the node simultaneously — not a single-service signal.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: K8s node CPU rules. k8scontainer-cpu-limit-high on the stressor. apm-svc-latency-warning on multiple services simultaneously.\n\nKey pattern: svc-latency-spike anomalies fire across several services at the same time with no single service showing errors. Correlated multi-service latency without errors is the fingerprint of a node-level resource issue vs an application bug.'
+              }
+            ]
+          },
+          s08_shipping_timeout: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Calls scale_deployment("shippingservice", 0). All shippingservice pods terminate. Checkout requests for shipping quotes are sent to a service with no running pods — the connection hangs until the gRPC client timeout fires, rather than being refused immediately.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'shippingservice: gone (same Kubernetes mechanism as s04).\ncheckoutservice: PlaceOrder calls GetShippingQuote → request hangs for the full gRPC timeout duration before returning an error.\ncheckoutservice latency spikes to the timeout value (e.g. 5–10s) before the error is returned.\nfrontend: checkout button appears to hang for several seconds before showing an error.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: k8sdeployment-replicas-critical on shippingservice. apm-svc-latency-critical on checkoutservice (latency = timeout duration). apm-svc-error-rate-critical on checkoutservice after timeouts.\n\nSignature: latency spike appears BEFORE the error rate spike (requests are in-flight and timing out). This temporal ordering distinguishes a timeout storm from a fast connection-refused scenario like s04 or s10.'
+              }
+            ]
+          },
+          s09_traffic_burst: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Scales the loadgenerator deployment from 1 to 5 replicas and patches its USERS environment variable to 50 per replica — producing approximately 250 concurrent simulated users vs the normal ~10. This is demand-driven load amplification: no infrastructure is broken, the system simply receives ~25x its baseline traffic.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'All storefront services receive 5–25x normal request volume simultaneously.\nConnection pools, thread pools, and in-memory queues fill up — latency percentiles (P95, P99) climb before error rates do.\nServices with tighter capacity budgets (adservice, currencyservice, recommendationservice) saturate first, causing their callers to slow down.\nIf services lack autoscaling, the overload is sustained for the entire duration.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: svc-throughput-anomaly across multiple services (CHANGE_POINT UP — the only scenario where throughput increases). apm-svc-latency-warning/critical as queuing delays accumulate. ep-throughput-anomaly on all major endpoints.\n\nDistinct from all other scenarios: throughput metrics go UP, not down. No K8s-layer events fire — infrastructure is healthy. Correlated throughput increases across many services with no infra change is the flash-sale fingerprint.'
+              }
+            ]
+          },
+          s10_network_partition: {
+            steps: [
+              {
+                title: 'What It Does',
+                content: 'Scales a configurable target service (default: productcatalogservice) to 0 replicas. Same Kubernetes mechanism as s04, but parameterized — any service in the mesh can be partitioned. Callers receive connection-refused errors immediately rather than slow responses.'
+              },
+              {
+                title: 'Impact Chain',
+                content: 'productcatalogservice (default target): gone.\nfrontend: product listing and detail pages fail immediately — errors returned in milliseconds (connection refused), not after a timeout.\nrecommendationservice: calls to productcatalog fail immediately.\ncheckoutservice: GetProduct during PlaceOrder fails immediately.\nFast-failure pattern propagates instantly through the call graph — no hanging requests.'
+              },
+              {
+                title: 'Expected Signals',
+                content: 'Fires: k8sdeployment-replicas-critical on target service. svc-calls-drop ANOMALY. apm-svc-error-rate-critical on all callers. ep-error-rate-spike on all endpoints calling the target.\n\nDistinction from s08: errors are immediate (connection refused in <1ms), not delayed. Latency does NOT spike — error rate jumps instantly without a preceding latency increase. No latency preamble before errors = hard connection failure, not a timeout.'
+              }
+            ]
+          }
+        },
+
         // ------------------------------------------------------------------
         init() {
           this.fetchAnomalies();
@@ -222,7 +405,7 @@
         // ------------------------------------------------------------------
         async fetchAnomalies() {
           try {
-            const res = await fetch('/api/anomalies');
+            const res = await fetch(window.location.origin + '/api/anomalies');
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             this.anomalies = await res.json();
             this.connected = true;
@@ -240,7 +423,7 @@
           this.loadingStates = { ...this.loadingStates, [anomaly.id]: 'starting' };
           this.globalError = null;
           try {
-            const res = await fetch(`/api/anomalies/${anomaly.id}/start`, {
+            const res = await fetch(window.location.origin + `/api/anomalies/${anomaly.id}/start`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ parameters: anomaly.parameters || {} }),
@@ -263,7 +446,7 @@
           this.loadingStates = { ...this.loadingStates, [anomaly.id]: 'stopping' };
           this.globalError = null;
           try {
-            const res = await fetch(`/api/anomalies/${anomaly.id}/stop`, {
+            const res = await fetch(window.location.origin + `/api/anomalies/${anomaly.id}/stop`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({}),
@@ -325,8 +508,121 @@
           const pad = n => String(n).padStart(2, '0');
           return h > 0 ? `${pad(h)}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
         },
+
+        // ------------------------------------------------------------------
+        openExplanation(id) {
+          this.activeExplanation = id;
+          this.explanationStep = 0;
+        },
+
+        closeExplanation() {
+          this.activeExplanation = null;
+          this.explanationStep = 0;
+        },
+
+        nextStep() {
+          if (this.explanationStep < this.activeSteps.length - 1) this.explanationStep++;
+          else this.closeExplanation();
+        },
+
+        prevStep() {
+          if (this.explanationStep > 0) this.explanationStep--;
+        },
+
+        get activeSteps() {
+          if (!this.activeExplanation) return [];
+          return (this.explanations[this.activeExplanation] || {}).steps || [];
+        },
+
+        get activeScenarioLabel() {
+          if (!this.activeExplanation) return '';
+          const m = this.activeExplanation.match(/^s(\d+)_/);
+          return m ? `Scenario ${m[1]}` : this.activeExplanation;
+        },
+
+        get activeScenarioName() {
+          const a = this.anomalies.find(x => x.id === this.activeExplanation);
+          return a ? a.name : '';
+        },
       };
     }
   </script>
+
+  <!-- ===== Scenario Explanation Wizard ===== -->
+  <div
+    x-show="activeExplanation !== null"
+    x-cloak
+    class="fixed inset-0 z-50 flex items-center justify-center p-4"
+    style="background: rgba(0,0,0,0.75);"
+    @click.self="closeExplanation()"
+  >
+    <div
+      class="modal-enter bg-white border border-gray-200 rounded-2xl w-full max-w-2xl flex flex-col shadow-2xl"
+      style="max-height: 90vh;"
+      @click.stop
+    >
+      <!-- Modal header -->
+      <div class="flex items-start justify-between px-6 pt-6 pb-4 border-b border-gray-200">
+        <div>
+          <p class="text-xs text-gray-400 font-mono mb-0.5" x-text="activeScenarioLabel"></p>
+          <h3 class="text-xl font-bold text-gray-900" x-text="activeScenarioName"></h3>
+        </div>
+        <button
+          @click="closeExplanation()"
+          class="ml-4 text-gray-400 hover:text-gray-700 transition-colors text-2xl leading-none flex-shrink-0"
+          aria-label="Close"
+        >&times;</button>
+      </div>
+
+      <!-- Step content -->
+      <div class="px-6 py-6 flex-1 overflow-y-auto">
+        <template x-if="activeSteps.length > 0">
+          <div>
+            <h4
+              class="text-sm font-bold text-blue-600 uppercase tracking-wider mb-4"
+              x-text="activeSteps[explanationStep].title"
+            ></h4>
+            <p
+              class="text-base text-gray-700 leading-relaxed whitespace-pre-line"
+              x-text="activeSteps[explanationStep].content"
+            ></p>
+          </div>
+        </template>
+      </div>
+
+      <!-- Footer: step dots + navigation -->
+      <div class="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
+        <!-- Step dots -->
+        <div class="flex items-center gap-2">
+          <template x-for="(_, i) in activeSteps" :key="i">
+            <span
+              class="w-2.5 h-2.5 rounded-full transition-colors duration-150"
+              :class="i === explanationStep ? 'bg-gray-900' : 'bg-gray-300'"
+            ></span>
+          </template>
+        </div>
+
+        <!-- Buttons -->
+        <div class="flex gap-3">
+          <button
+            @click="prevStep()"
+            :disabled="explanationStep === 0"
+            class="px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-150"
+            :class="explanationStep === 0
+              ? 'bg-gray-100 text-gray-400 cursor-not-allowed opacity-50'
+              : 'bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer'"
+          >
+            &larr; Back
+          </button>
+          <button
+            @click="nextStep()"
+            class="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-all duration-150 cursor-pointer"
+            x-text="explanationStep === activeSteps.length - 1 ? 'Done' : 'Next \u2192'"
+          ></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </body>
 </html>
