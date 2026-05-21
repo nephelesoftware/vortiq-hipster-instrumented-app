@@ -58,10 +58,11 @@ spec:
     spec:
       serviceAccountName: anomaly-injector
       hostPID: true
+      imagePullSecrets:
+        - name: hipster-ghcr-pull
       containers:
         - name: anomaly-injector
-          image: docker.io/library/anomaly-injector:naked
-          imagePullPolicy: Never
+          image: ghcr.io/nephelesoftware/hipster-anomaly-injector:vortiq-2463007
           ports:
             - name: http
               containerPort: 8080
